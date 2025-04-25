@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, Timestamp, onSnapshot } from 'firebase/firestore';
-import { Calendar, momentLocalizer, Event } from 'react-big-calendar';
+import { Calendar } from 'react-big-calendar';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import localizer from '@/lib/calendar';
 
