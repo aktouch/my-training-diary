@@ -29,4 +29,3 @@ git clone https://github.com/あなたのアカウント/my-training-diary.git
 cd my-training-diary
 npm install
 npm run dev
-

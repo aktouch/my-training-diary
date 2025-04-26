@@ -2,27 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, Timestamp, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { Calendar } from 'react-big-calendar';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import localizer from '@/lib/calendar';
 
 interface DiaryEvent {
-  id: string; // ← ここ追加！
+  id: string;
   start: Date;
   end: Date;
   title: string;
+  uid: string;
 }
 
 export default function Home() {
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
   const [events, setEvents] = useState<DiaryEvent[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [editId, setEditId] = useState<string | null>(null); // 編集中ID
 
-  // ログイン監視
   useEffect(() => {
     const auth = getAuth();
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -31,17 +31,46 @@ export default function Home() {
     return () => unsubscribe();
   }, []);
 
-  // 投稿追加
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    const auth = getAuth();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error('ログイン失敗:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    const auth = getAuth();
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('ログアウト失敗:', error);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!text || !user) return;
+
     try {
-      await addDoc(collection(db, 'diary'), {
-        content: text,
-        createdAt: Timestamp.now(),
-        uid: user.uid,
-        name: user.displayName,
-      });
-      setStatus('保存しました！');
+      if (editingId) {
+        // 編集モードならupdate
+        await updateDoc(doc(db, 'diary', editingId), {
+          content: text,
+        });
+        setStatus('更新しました！');
+        setEditingId(null);
+      } else {
+        // 通常投稿
+        await addDoc(collection(db, 'diary'), {
+          content: text,
+          createdAt: Timestamp.now(),
+          uid: user.uid,
+          name: user.displayName,
+        });
+        setStatus('保存しました！');
+      }
       setText('');
     } catch (err) {
       console.error(err);
@@ -49,46 +78,39 @@ export default function Home() {
     }
   };
 
-  // 投稿編集保存
-  const handleUpdate = async () => {
-    if (!editId || !text) return;
-    try {
-      const diaryRef = doc(db, 'diary', editId);
-      await updateDoc(diaryRef, { content: text });
-      setStatus('更新しました！');
-      setText('');
-      setEditId(null);
-    } catch (err) {
-      console.error(err);
-      setStatus('更新に失敗しました');
-    }
+  const handleEdit = (id: string, title: string) => {
+    setEditingId(id);
+    setText(title);
   };
 
-  // 投稿削除
   const handleDelete = async (id: string) => {
     try {
-      const diaryRef = doc(db, 'diary', id);
-      await deleteDoc(diaryRef);
-      setStatus('削除しました！');
+      await deleteDoc(doc(db, 'diary', id));
+      setStatus('削除しました');
     } catch (err) {
       console.error(err);
       setStatus('削除に失敗しました');
     }
   };
 
-  // 投稿一覧取得
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'diary'), (snapshot) => {
-      const newEvents = snapshot.docs.map((docItem) => {
-        const data = docItem.data();
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const newEvents = snapshot.docs.map((doc) => {
+        const data = doc.data();
         const date = data.createdAt?.toDate?.() ?? new Date();
         return {
-          id: docItem.id, // ドキュメントID取得
+          id: doc.id,
           start: date,
           end: date,
           title: data.content,
+          uid: data.uid,
         };
-      });
+      }).filter((event) => event.uid === currentUser.uid); // 自分の投稿だけ表示
+
       setEvents(newEvents);
     });
 
@@ -101,12 +123,12 @@ export default function Home() {
         {user ? (
           <>
             <p>こんにちは、{user.displayName} さん！</p>
-            <button onClick={() => signOut(getAuth())} className="bg-gray-500 text-white px-3 py-1 rounded hover:bg-gray-600">
+            <button onClick={handleLogout} className="bg-gray-500 text-white px-3 py-1 rounded hover:bg-gray-600">
               ログアウト
             </button>
           </>
         ) : (
-          <button onClick={() => signInWithPopup(getAuth(), new GoogleAuthProvider())} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">
+          <button onClick={handleLogin} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">
             Googleでログイン
           </button>
         )}
@@ -123,52 +145,52 @@ export default function Home() {
             className="w-full border p-2 mb-2 rounded"
             rows={4}
           />
-          {editId ? (
-            <button
-              onClick={handleUpdate}
-              className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
-            >
-              更新する
-            </button>
-          ) : (
+          <div className="flex gap-2">
             <button
               onClick={handleSubmit}
               className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             >
-              投稿する
+              {editingId ? '更新する' : '投稿する'}
             </button>
-          )}
+            {editingId && (
+              <button
+                onClick={() => {
+                  setEditingId(null);
+                  setText('');
+                }}
+                className="bg-gray-300 text-black px-4 py-2 rounded hover:bg-gray-400"
+              >
+                キャンセル
+              </button>
+            )}
+          </div>
           <p className="mt-2 text-sm">{status}</p>
         </>
       ) : (
         <p className="text-gray-500 mb-4">※投稿するにはログインが必要です</p>
       )}
 
-      <h2 className="text-xl font-semibold mt-8 mb-4">投稿一覧</h2>
-      <ul className="space-y-4 mb-8">
+      <h2 className="text-xl font-semibold mt-8 mb-4">過去の記録</h2>
+      <ul className="space-y-2">
         {events.map((event) => (
-          <li key={event.id} className="border p-4 rounded">
-            <p>{event.title}</p>
-            <p className="text-sm text-gray-500">{event.start.toLocaleDateString()}</p>
-            {user && (
-              <div className="mt-2 flex space-x-2">
+          <li key={event.id} className="border p-2 rounded">
+            <div className="flex justify-between items-center">
+              <span>{event.start.toLocaleDateString()} - {event.title}</span>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => {
-                    setEditId(event.id);
-                    setText(event.title);
-                  }}
-                  className="bg-yellow-400 text-white px-2 py-1 rounded hover:bg-yellow-500"
+                  onClick={() => handleEdit(event.id, event.title)}
+                  className="text-blue-500 hover:underline"
                 >
                   編集
                 </button>
                 <button
                   onClick={() => handleDelete(event.id)}
-                  className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
+                  className="text-red-500 hover:underline"
                 >
                   削除
                 </button>
               </div>
-            )}
+            </div>
           </li>
         ))}
       </ul>
@@ -186,3 +208,4 @@ export default function Home() {
     </main>
   );
 }
+
