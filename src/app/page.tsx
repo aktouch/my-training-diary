@@ -1,4 +1,4 @@
- 'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
@@ -22,6 +22,8 @@ export default function Home() {
   const [events, setEvents] = useState<DiaryEvent[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [activities, setActivities] = useState<any[]>([]);
 
   useEffect(() => {
     const auth = getAuth();
@@ -50,19 +52,37 @@ export default function Home() {
     }
   };
 
+  const fetchStravaActivities = async () => {
+    const token = prompt('Stravaのアクセストークンを入力してください！');
+    if (!token) return;
+
+    try {
+      const response = await fetch('https://www.strava.com/api/v3/athlete/activities', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      console.log('取得したアクティビティ:', data);
+      setActivities(data);
+      setStatus(`アクティビティを${data.length}件取得しました`);
+    } catch (error) {
+      console.error(error);
+      setStatus('アクティビティ取得に失敗しました');
+    }
+  };
+
   const handleSubmit = async () => {
     if (!text || !user) return;
 
     try {
       if (editingId) {
-        // 編集モードならupdate
         await updateDoc(doc(db, 'diary', editingId), {
           content: text,
         });
         setStatus('更新しました！');
         setEditingId(null);
       } else {
-        // 通常投稿
         await addDoc(collection(db, 'diary'), {
           content: text,
           createdAt: Timestamp.now(),
@@ -109,7 +129,7 @@ export default function Home() {
           title: data.content,
           uid: data.uid,
         };
-      }).filter((event) => event.uid === currentUser.uid); // 自分の投稿だけ表示
+      }).filter((event) => event.uid === currentUser.uid);
 
       setEvents(newEvents);
     });
@@ -122,10 +142,18 @@ export default function Home() {
       <div className="mb-4 flex justify-between items-center">
         {user ? (
           <>
-            <p>こんにちは、{user.displayName} さん！</p>
-            <button onClick={handleLogout} className="bg-gray-500 text-white px-3 py-1 rounded hover:bg-gray-600">
-              ログアウト
-            </button>
+            <div className="flex items-center gap-2">
+              <p>こんにちは、{user.displayName} さん！</p>
+              <button onClick={handleLogout} className="bg-gray-500 text-white px-3 py-1 rounded hover:bg-gray-600">
+                ログアウト
+              </button>
+              <button
+                onClick={fetchStravaActivities}
+                className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 ml-2"
+              >
+                Stravaデータ取得
+              </button>
+            </div>
           </>
         ) : (
           <button onClick={handleLogin} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">
@@ -195,6 +223,17 @@ export default function Home() {
         ))}
       </ul>
 
+      <h2 className="text-xl font-semibold mt-8 mb-4">Stravaアクティビティ</h2>
+      <ul className="space-y-2">
+        {activities.map((activity) => (
+          <li key={activity.id} className="border p-2 rounded">
+            <div>{new Date(activity.start_date).toLocaleDateString()} - {activity.name}</div>
+            <div>距離: {(activity.distance / 1000).toFixed(2)} km</div>
+            <div>タイム: {Math.floor(activity.elapsed_time / 60)}分{activity.elapsed_time % 60}秒</div>
+          </li>
+        ))}
+      </ul>
+
       <h2 className="text-xl font-semibold mt-8 mb-4">カレンダー表示</h2>
       <div style={{ height: 500 }}>
         <Calendar
@@ -208,4 +247,3 @@ export default function Home() {
     </main>
   );
 }
-
