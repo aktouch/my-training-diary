@@ -23,7 +23,15 @@ interface StravaActivity {
   start_date: string;
   name: string;
   distance: number;
+  stravaId?: string;
 }
+
+type Diary = {
+  id: string;
+  userId: string;
+  message: string;
+  timestamp: any;
+};
 
 export default function Home() {
   const [text, setText] = useState('');
@@ -34,6 +42,21 @@ export default function Home() {
   const [editId, setEditId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [stravaActivities, setStravaActivities] = useState<StravaActivity[]>([]);
+  const [diaries, setDiaries] = useState<Diary[]>([]);
+
+  useEffect(() => {
+    const fetchDiaries = async () => {
+      try {
+        const res = await fetch('/api/line/list');
+        const data = await res.json();
+        setDiaries(data.diaries);
+      } catch (error) {
+        console.error('データ取得エラー:', error);
+      }
+    };
+
+    fetchDiaries();
+  }, []);
 
   useEffect(() => {
     const auth = getAuth();
@@ -51,7 +74,30 @@ export default function Home() {
         id: doc.id,
         ...doc.data()
       })) as StravaActivity[];
-      setStravaActivities(activities);
+
+      // 重複を除去
+      const uniqueActivities = activities.reduce((acc: StravaActivity[], current) => {
+        // stravaIdがある場合はstravaIdで重複判定
+        if (current.stravaId) {
+          const isDuplicate = acc.some(activity => activity.stravaId === current.stravaId);
+          if (!isDuplicate) {
+            acc.push(current);
+          }
+        } 
+        // stravaIdがない場合はstart_dateとdistanceで重複判定
+        else {
+          const isDuplicate = acc.some(activity => 
+            activity.start_date === current.start_date && 
+            activity.distance === current.distance
+          );
+          if (!isDuplicate) {
+            acc.push(current);
+          }
+        }
+        return acc;
+      }, []);
+
+      setStravaActivities(uniqueActivities);
     });
 
     return () => unsubscribe();
@@ -234,6 +280,15 @@ export default function Home() {
                 </button>
               </div>
             </div>
+          </li>
+        ))}
+      </ul>
+
+      <h2 className="text-xl font-semibold mt-8 mb-4">LINEメッセージ一覧</h2>
+      <ul className="space-y-2">
+        {diaries.map((diary) => (
+          <li key={diary.id} className="p-2 border rounded">
+            {diary.message}
           </li>
         ))}
       </ul>
